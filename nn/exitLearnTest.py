@@ -14,9 +14,12 @@ import torch.nn.functional as F
 
 
 class AlexNet_BranchyNet(nn.Module):
-	def __init__(self, n_classes=1000):
+	def __init__(self, n_classes=1000, train):
 		super(AlexNet_BranchyNet, self).__init__()
 		self.n_classes = n_classes
+		self.train = train
+
+		#First Conv Layer in main branch
 		self.conv1 = nn.Conv2d(3, 96, kernel_size=11, stride=4)
 		self.lrn  = nn.LocalResponseNorm(5, alpha=1e-4, beta=0.75, k=2.)
 		
@@ -46,7 +49,7 @@ class AlexNet_BranchyNet(nn.Module):
 		self.fc3 = nn.Linear(in_features=4096, out_features=n_classes)
 
 
-	def forward(self, x):
+	def forward_train(self, x):
 		#Main Branch
 		x = F.relu(self.conv1(x))
 		x = self.lrn(x)
@@ -100,20 +103,50 @@ class AlexNet_BranchyNet(nn.Module):
 
 
 
+	def forward_test(self, x, control):
+		if(control == 1):
+			x = F.relu(self.conv1(x))
+			x = self.lrn(x)
+			x = F.max_pool2d(x, kernel_size=3, stride=2)
+
+			#First side branch
+			x_exit1 = F.relu(self.conv1_exit1(x))
+			x_exit1 = self.lrn(x_exit1)
+			x_exit1 = F.max_pool2d(x_exit1, kernel_size=3, stride=2)
+			x_exit1 = F.relu(self.conv2_exit1(x_exit1))
+			x_exit1 = F.max_pool2d(x_exit1, kernel_size=3, stride=2)
+			x_exit1 = x_exit1.view(x_exit1.size(0), 256 * 5 * 5)
+			x_exit1 = self.fc1_exit1(x_exit1)
+			x_exit1 = self.fc2_exit1(x_exit1)
+			return torch.sigmoid(x_exit1)
+		elif(control == 2):
+			x_exit2 = F.relu(self.conv2(x))
+			x_exit2 = self.lrn(x_exit2)
+			x_exit2 = F.max_pool2d(x_exit2, kernel_size=3, stride=2)
+			x_exit2 = F.relu(self.conv3(x_exit2))			
+			x_exit2 = self.conv1_exit2(x_exit2)
+			x_exit2 = F.max_pool2d(x_exit2, kernel_size=3, stride=2)
+			x_exit2 = x_exit2.view(x_exit2.size(0), 384 * 6 * 6)
+			x_exit2 = F.relu(self.fc1_exit2(x_exit2))
+			x_exit2 = self.fc2_exit2(x_exit2)
+			return torch.sigmoid(x_exit2)
+		else:
+			#Main branch FC layer
+			x = F.relu(self.conv4(x))
+			x = F.relu(self.conv5(x))
+			x = F.max_pool2d(x, kernel_size=3, stride=2)
+			x = F.dropout(x, p=0.5, training=True, inplace=False)
+
+			x = x.view(x.size(0), 256 * 6 * 6)
+			x = F.relu(self.fc1(x))
+			x = F.dropout(x, p=0.5, training=True, inplace=False)
+			x = F.relu(self.fc2(x))
+			x = self.fc3(x)
 
 
-
-
-"""
-		#Main Branch
-		x = F.relu(self.conv2(x))
-		x = self.lrn(x)
-		x = F.max_pool2d(x, kernel_size=3, stride=2)
-		x = F.relu(self.conv3(x))
-
-		#Second side branch
-		x_exit2 = self.conv1_exit2(x)
-		x_exit2 = self.fc1_exit2(x_exit2)
-		x_exit2 = self.fc2_exit2(x_exit2)
-"""
+	def forward(self, x, control):
+		if(self.train):
+			self.forward_train(x)
+		else:
+			self.forward_test(x, control)
 
